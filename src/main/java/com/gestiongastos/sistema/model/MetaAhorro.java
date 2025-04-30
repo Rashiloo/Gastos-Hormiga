@@ -4,48 +4,52 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
-import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Entity
 @Table(name = "metas_ahorro")
 public class MetaAhorro {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @NotBlank(message = "El nombre de la meta es obligatorio")
-    private String nombre;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "usuario_id", nullable = false)
+    private Usuario usuario;
 
-    private String descripcion;
+    @NotBlank(message = "El nombre es obligatorio")
+    @Column(nullable = false)
+    private String nombre;
 
     @NotNull(message = "El monto objetivo es obligatorio")
     @Positive(message = "El monto objetivo debe ser positivo")
-    @Column(name = "monto_objetivo")
+    @Column(name = "monto_objetivo", nullable = false)
     private Double montoObjetivo;
 
-    @Column(name = "monto_actual")
-    private Double montoActual = 0.0;
-
-    @Column(name = "fecha_inicio")
+    @Column(name = "fecha_inicio", nullable = false)
     private LocalDate fechaInicio;
 
-    @Column(name = "fecha_objetivo")
-    private LocalDate fechaObjetivo;
+    @Column(name = "fecha_fin", nullable = false)
+    private LocalDate fechaFin;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "usuario_id")
-    private Usuario usuario;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private EstadoMeta estado = EstadoMeta.ACTIVA;
 
-    @PrePersist
-    protected void onCreate() {
-        fechaInicio = LocalDate.now();
+    @Column(name = "total_gastos_hormiga_periodo", nullable = false)
+    private Double totalGastosHormigaPeriodo = 0.0;
+
+    @Column(name = "fecha_registro", nullable = false)
+    private LocalDateTime fechaRegistro = LocalDateTime.now();
+
+    @OneToMany(mappedBy = "meta", cascade = CascadeType.ALL)
+    private List<GastoEvitado> gastosEvitados;
+
+    public enum EstadoMeta {
+        ACTIVA, COMPLETADA, CANCELADA
     }
 }

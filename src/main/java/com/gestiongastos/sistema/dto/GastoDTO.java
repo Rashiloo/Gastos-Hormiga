@@ -1,31 +1,23 @@
 package com.gestiongastos.sistema.dto;
 
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import lombok.Data;
-
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 
 @Data
 public class GastoDTO {
     private Long id;
-
-    @NotBlank(message = "La descripción es obligatoria")
-    private String descripcion;
-
-    @NotNull(message = "El monto es obligatorio")
-    @Positive(message = "El monto debe ser positivo")
+    
+    @NotNull(message = "El monto es requerido")
+    @Positive(message = "El monto debe ser mayor a 0")
     private Double monto;
-
-    private LocalDateTime fechaGasto;
-
-    @NotNull(message = "La categoría es obligatoria")
-    private Long categoriaId;
-
-    private String categoriaNombre;
-
-    private boolean esEvitable;
-
-    private boolean esRecurrente;
+    
+    private String descripcion;
+    private LocalDate fechaGasto;
+    private LocalDate fechaRegistro;
+    private Long usuarioId;
+    private Long tipoGastoId;
+    private LocalDate periodoInicio;
+    private LocalDate periodoFin;
 }

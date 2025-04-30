@@ -3,77 +3,52 @@ package com.gestiongastos.sistema.model;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import lombok.AllArgsConstructor;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
-import lombok.NoArgsConstructor;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.userdetails.UserDetails;
-
-import java.util.Collection;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Entity
 @Table(name = "usuarios")
-public class Usuario implements UserDetails {
-
-    public Usuario(String nombre, String email, String password) {
-        this.nombre = nombre;
-        this.email = email;
-        this.password = password;
-    }
-
+public class Usuario {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @NotBlank(message = "El nombre es obligatorio")
+    @Size(min = 2, max = 100, message = "El nombre debe tener entre 2 y 100 caracteres")
+    @Column(nullable = false)
     private String nombre;
 
-    @NotBlank(message = "El apellido es obligatorio")
-    private String apellido;
-
-    @Column(unique = true)
     @NotBlank(message = "El email es obligatorio")
-    @Email(message = "El formato del email no es válido")
+    @Email(message = "El email debe ser válido")
+    @Column(unique = true, nullable = false)
     private String email;
 
     @NotBlank(message = "La contraseña es obligatoria")
+    @Size(min = 6, message = "La contraseña debe tener al menos 6 caracteres")
+    @Column(nullable = false)
     private String password;
 
-    @Column(name = "presupuesto_mensual")
-    private Double presupuestoMensual;
+    @Column(name = "fecha_registro", nullable = false)
+    private LocalDateTime fechaRegistro;
 
-    @Override
-    public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(new SimpleGrantedAuthority("ROLE_USER"));
-    }
+    @Column(name = "tiene_presupuesto_inicial")
+    private Boolean tienePresupuestoInicial = false;
 
-    @Override
-    public String getUsername() {
-        return this.email;
-    }
+    @OneToMany(mappedBy = "usuario", cascade = CascadeType.ALL)
+    private List<Gasto> gastos;
 
-    @Override
-    public boolean isAccountNonExpired() {
-        return true;
-    }
+    @OneToMany(mappedBy = "usuario", cascade = CascadeType.ALL)
+    private List<Presupuesto> presupuestos;
 
-    @Override
-    public boolean isAccountNonLocked() {
-        return true;
-    }
+    @OneToMany(mappedBy = "usuario", cascade = CascadeType.ALL)
+    private List<MetaAhorro> metasAhorro;
 
-    @Override
-    public boolean isCredentialsNonExpired() {
-        return true;
-    }
-
-    @Override
-    public boolean isEnabled() {
-        return true;
+    @PrePersist
+    protected void onCreate() {
+        fechaRegistro = LocalDateTime.now();
+        tienePresupuestoInicial = false;
     }
 }

@@ -1,28 +1,34 @@
 package com.gestiongastos.sistema.model;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotBlank;
-import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.NoArgsConstructor;
+import java.util.List;
 
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Entity
 @Table(name = "categorias")
 public class Categoria {
-
+    
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @NotBlank(message = "El nombre de la categoría es obligatorio")
-    @Column(unique = true)
+    
+    @Column(nullable = false, unique = true)
     private String nombre;
-
+    
+    @Column(length = 100)
     private String descripcion;
-
-    @Column(name = "color")
+    
+    @Column(nullable = false)
     private String color;
+    
+    @Column(nullable = false)
+    private Boolean activa = true;
+    
+    @ManyToOne
+    @JoinColumn(name = "usuario_id")
+    private Usuario usuario;
+    
+    @OneToMany(mappedBy = "categoria")
+    private List<TipoGasto> tiposGasto;
 }

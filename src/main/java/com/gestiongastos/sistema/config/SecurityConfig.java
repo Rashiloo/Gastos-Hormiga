@@ -1,7 +1,7 @@
 package com.gestiongastos.sistema.config;
 
-import com.gestiongastos.sistema.security.CustomUserDetailsService;
 import com.gestiongastos.sistema.security.JwtAuthenticationFilter;
+import com.gestiongastos.sistema.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,7 +23,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final CustomUserDetailsService userDetailsService;
+    private final AuthService authService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
     @Bean
@@ -32,7 +32,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth ->
-                        auth.requestMatchers("/api/usuarios/registro", "/api/usuarios/login").permitAll()
+                        auth.requestMatchers("/api/v1/auth/registro", "/api/v1/auth/login").permitAll()
                                 .anyRequest().authenticated()
                 );
 
@@ -45,7 +45,7 @@ public class SecurityConfig {
     @Bean
     public DaoAuthenticationProvider authenticationProvider() {
         DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
-        authProvider.setUserDetailsService(userDetailsService);
+        authProvider.setUserDetailsService(authService);
         authProvider.setPasswordEncoder(passwordEncoder());
         return authProvider;
     }

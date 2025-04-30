@@ -1,52 +1,42 @@
 package com.gestiongastos.sistema.model;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
-import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.NoArgsConstructor;
-
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
-@NoArgsConstructor
-@AllArgsConstructor
 @Entity
 @Table(name = "gastos")
 public class Gasto {
-
+    
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @NotBlank(message = "La descripción es obligatoria")
-    private String descripcion;
-
-    @NotNull(message = "El monto es obligatorio")
-    @Positive(message = "El monto debe ser positivo")
-    private Double monto;
-
-    @Column(name = "fecha_gasto")
-    private LocalDateTime fechaGasto;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "categoria_id")
-    private Categoria categoria;
-
-    @Column(name = "es_evitable")
-    private boolean esEvitable;
-
-    @Column(name = "es_recurrente")
-    private boolean esRecurrente;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "usuario_id")
+    
+    @ManyToOne
+    @JoinColumn(name = "usuario_id", nullable = false)
     private Usuario usuario;
-
-    @PrePersist
-    protected void onCreate() {
-        fechaGasto = LocalDateTime.now();
-    }
+    
+    @ManyToOne
+    @JoinColumn(name = "tipo_gasto_id", nullable = false)
+    private TipoGasto tipoGasto;
+    
+    @Column(nullable = false)
+    private Double monto;
+    
+    @Column(name = "fecha_gasto", nullable = false)
+    private LocalDate fechaGasto;
+    
+    @Column(name = "fecha_registro", nullable = false)
+    private LocalDateTime fechaRegistro = LocalDateTime.now();
+    
+    @Column(length = 100)
+    private String descripcion;
+    
+    @Column(name = "periodo_inicio")
+    private LocalDate periodoInicio;
+    
+    @Column(name = "periodo_fin")
+    private LocalDate periodoFin;
 }

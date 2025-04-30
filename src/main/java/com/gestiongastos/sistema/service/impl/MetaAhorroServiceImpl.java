@@ -1,123 +1,330 @@
 package com.gestiongastos.sistema.service.impl;
 
 import com.gestiongastos.sistema.dto.MetaAhorroDTO;
+import com.gestiongastos.sistema.dto.MetaAhorroResponseDTO;
+import com.gestiongastos.sistema.dto.UsuarioDTO;
+import com.gestiongastos.sistema.model.GastoEvitado;
 import com.gestiongastos.sistema.model.MetaAhorro;
+import com.gestiongastos.sistema.model.TipoGasto;
 import com.gestiongastos.sistema.model.Usuario;
+import com.gestiongastos.sistema.repository.GastoEvitadoRepository;
 import com.gestiongastos.sistema.repository.MetaAhorroRepository;
+import com.gestiongastos.sistema.repository.TipoGastoRepository;
 import com.gestiongastos.sistema.repository.UsuarioRepository;
 import com.gestiongastos.sistema.service.MetaAhorroService;
-import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Transactional
 public class MetaAhorroServiceImpl implements MetaAhorroService {
 
     private final MetaAhorroRepository metaAhorroRepository;
+    private final TipoGastoRepository tipoGastoRepository;
+    private final GastoEvitadoRepository gastoEvitadoRepository;
     private final UsuarioRepository usuarioRepository;
 
     @Override
-    public MetaAhorroDTO crearMetaAhorro(Long usuarioId, MetaAhorroDTO metaAhorroDTO) {
-        Usuario usuario = usuarioRepository.findById(usuarioId)
-                .orElseThrow(() -> new EntityNotFoundException("Usuario no encontrado"));
+    @Transactional
+    public MetaAhorroResponseDTO registrarMetaAhorro(MetaAhorroDTO metaAhorroDTO, UsuarioDTO usuarioDTO) {
+        validarUsuario(usuarioDTO);
+        validarFechasMeta(metaAhorroDTO.getFechaInicio(), metaAhorroDTO.getFechaFin());
+        validarMontoObjetivo(metaAhorroDTO.getMontoObjetivo());
+
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        // Validar que el monto objetivo no exceda el total de gastos hormiga del período
+        Double totalGastosHormiga = metaAhorroRepository.calcularTotalGastosHormigaPeriodo(
+                usuario,
+                metaAhorroDTO.getFechaInicio().minusMonths(1),
+                metaAhorroDTO.getFechaInicio()
+        );
+
+        if (metaAhorroDTO.getMontoObjetivo() > totalGastosHormiga) {
+            throw new RuntimeException("El monto objetivo no puede ser mayor que el total de gastos hormiga del período anterior");
+        }
 
         MetaAhorro metaAhorro = new MetaAhorro();
-        metaAhorro.setNombre(metaAhorroDTO.getNombre());
-        metaAhorro.setDescripcion(metaAhorroDTO.getDescripcion());
-        metaAhorro.setMontoObjetivo(metaAhorroDTO.getMontoObjetivo());
-        metaAhorro.setMontoActual(0.0);
-        metaAhorro.setFechaObjetivo(metaAhorroDTO.getFechaObjetivo());
         metaAhorro.setUsuario(usuario);
+        metaAhorro.setNombre(metaAhorroDTO.getNombre());
+        metaAhorro.setMontoObjetivo(metaAhorroDTO.getMontoObjetivo());
+        metaAhorro.setFechaInicio(metaAhorroDTO.getFechaInicio());
+        metaAhorro.setFechaFin(metaAhorroDTO.getFechaFin());
+        metaAhorro.setEstado(MetaAhorro.EstadoMeta.ACTIVA);
+        metaAhorro.setTotalGastosHormigaPeriodo(totalGastosHormiga);
+        metaAhorro.setFechaRegistro(LocalDateTime.now());
 
         MetaAhorro metaAhorroGuardada = metaAhorroRepository.save(metaAhorro);
-        return convertirADTO(metaAhorroGuardada);
+        return convertirAResponseDTO(metaAhorroGuardada);
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public MetaAhorroDTO obtenerMetaAhorroPorId(Long id) {
-        return metaAhorroRepository.findById(id)
-                .map(this::convertirADTO)
-                .orElseThrow(() -> new EntityNotFoundException("Meta de ahorro no encontrada"));
-    }
+    @Transactional
+    public MetaAhorroResponseDTO actualizarMetaAhorro(Long id, MetaAhorroDTO metaAhorroDTO, UsuarioDTO usuarioDTO) {
+        validarUsuario(usuarioDTO);
+        validarFechasMeta(metaAhorroDTO.getFechaInicio(), metaAhorroDTO.getFechaFin());
+        validarMontoObjetivo(metaAhorroDTO.getMontoObjetivo());
 
-    @Override
-    @Transactional(readOnly = true)
-    public List<MetaAhorroDTO> obtenerMetasAhorroPorUsuario(Long usuarioId) {
-        return metaAhorroRepository.findByUsuarioId(usuarioId).stream()
-                .map(this::convertirADTO)
-                .collect(Collectors.toList());
-    }
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
 
-    @Override
-    public MetaAhorroDTO actualizarMetaAhorro(Long id, MetaAhorroDTO metaAhorroDTO) {
         MetaAhorro metaAhorro = metaAhorroRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Meta de ahorro no encontrada"));
+                .orElseThrow(() -> new RuntimeException("Meta de ahorro no encontrada"));
+
+        if (!metaAhorro.getUsuario().getId().equals(usuario.getId())) {
+            throw new RuntimeException("No tiene permiso para modificar esta meta de ahorro");
+        }
+
+        if (metaAhorro.getEstado() != MetaAhorro.EstadoMeta.ACTIVA) {
+            throw new RuntimeException("No se puede modificar una meta que no está activa");
+        }
+
+        // Validar que el monto objetivo no exceda el total de gastos hormiga del período
+        Double totalGastosHormiga = metaAhorroRepository.calcularTotalGastosHormigaPeriodo(
+                usuario,
+                metaAhorroDTO.getFechaInicio().minusMonths(1),
+                metaAhorroDTO.getFechaInicio()
+        );
+
+        if (metaAhorroDTO.getMontoObjetivo() > totalGastosHormiga) {
+            throw new RuntimeException("El monto objetivo no puede ser mayor que el total de gastos hormiga del período anterior");
+        }
 
         metaAhorro.setNombre(metaAhorroDTO.getNombre());
-        metaAhorro.setDescripcion(metaAhorroDTO.getDescripcion());
         metaAhorro.setMontoObjetivo(metaAhorroDTO.getMontoObjetivo());
-        metaAhorro.setFechaObjetivo(metaAhorroDTO.getFechaObjetivo());
+        metaAhorro.setFechaInicio(metaAhorroDTO.getFechaInicio());
+        metaAhorro.setFechaFin(metaAhorroDTO.getFechaFin());
+        metaAhorro.setTotalGastosHormigaPeriodo(totalGastosHormiga);
 
         MetaAhorro metaAhorroActualizada = metaAhorroRepository.save(metaAhorro);
-        return convertirADTO(metaAhorroActualizada);
+        return convertirAResponseDTO(metaAhorroActualizada);
     }
 
     @Override
-    public void eliminarMetaAhorro(Long id) {
-        if (!metaAhorroRepository.existsById(id)) {
-            throw new EntityNotFoundException("Meta de ahorro no encontrada");
+    @Transactional
+    public void eliminarMetaAhorro(Long id, UsuarioDTO usuarioDTO) {
+        validarUsuario(usuarioDTO);
+
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        MetaAhorro metaAhorro = metaAhorroRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Meta de ahorro no encontrada"));
+
+        if (!metaAhorro.getUsuario().getId().equals(usuario.getId())) {
+            throw new RuntimeException("No tiene permiso para eliminar esta meta de ahorro");
         }
+
+        if (metaAhorro.getEstado() != MetaAhorro.EstadoMeta.ACTIVA) {
+            throw new RuntimeException("No se puede eliminar una meta que no está activa");
+        }
+
         metaAhorroRepository.deleteById(id);
     }
 
     @Override
-    public MetaAhorroDTO actualizarMontoActual(Long id, Double montoActual) {
-        MetaAhorro metaAhorro = metaAhorroRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Meta de ahorro no encontrada"));
-
-        metaAhorro.setMontoActual(montoActual);
-        MetaAhorro metaAhorroActualizada = metaAhorroRepository.save(metaAhorro);
-        return convertirADTO(metaAhorroActualizada);
+    @Transactional(readOnly = true)
+    public Optional<MetaAhorroResponseDTO> obtenerPorId(Long id) {
+        return metaAhorroRepository.findById(id)
+                .map(this::convertirAResponseDTO);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<MetaAhorroDTO> obtenerMetasIncompletas(Long usuarioId) {
-        return metaAhorroRepository.findByUsuarioIdAndMontoActualLessThanMontoObjetivo(usuarioId).stream()
-                .map(this::convertirADTO)
+    public List<MetaAhorroResponseDTO> obtenerMetasAhorroUsuario(UsuarioDTO usuarioDTO) {
+        validarUsuario(usuarioDTO);
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        return metaAhorroRepository.buscarPorUsuario(usuario).stream()
+                .map(this::convertirAResponseDTO)
                 .collect(Collectors.toList());
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Double calcularPorcentajeCompletado(Long id) {
-        MetaAhorro metaAhorro = metaAhorroRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Meta de ahorro no encontrada"));
+    public List<MetaAhorroResponseDTO> obtenerMetasAhorroActivas(UsuarioDTO usuarioDTO) {
+        validarUsuario(usuarioDTO);
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        return metaAhorroRepository.buscarPorUsuarioYEstado(usuario, MetaAhorro.EstadoMeta.ACTIVA).stream()
+                .map(this::convertirAResponseDTO)
+                .collect(Collectors.toList());
+    }
 
-        if (metaAhorro.getMontoObjetivo() == 0) {
+    @Override
+    @Transactional(readOnly = true)
+    public Double calcularProgresoMetaAhorro(Long metaId) {
+        MetaAhorro metaAhorro = metaAhorroRepository.findById(metaId)
+                .orElseThrow(() -> new RuntimeException("Meta de ahorro no encontrada"));
+
+        Double totalAhorrado = metaAhorroRepository.buscarTotalAhorradoPorMeta(metaId);
+
+        return (totalAhorrado / metaAhorro.getMontoObjetivo()) * 100;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Double calcularAhorroDiarioNecesario(Long metaId) {
+        MetaAhorro metaAhorro = metaAhorroRepository.findById(metaId)
+                .orElseThrow(() -> new RuntimeException("Meta de ahorro no encontrada"));
+
+        Double totalAhorrado = metaAhorroRepository.buscarTotalAhorradoPorMeta(metaId);
+
+        Double montoRestante = metaAhorro.getMontoObjetivo() - totalAhorrado;
+        long diasRestantes = ChronoUnit.DAYS.between(LocalDate.now(), metaAhorro.getFechaFin());
+
+        if (diasRestantes <= 0) {
             return 0.0;
         }
 
-        return (metaAhorro.getMontoActual() / metaAhorro.getMontoObjetivo()) * 100;
+        return montoRestante / diasRestantes;
     }
 
-    private MetaAhorroDTO convertirADTO(MetaAhorro metaAhorro) {
-        MetaAhorroDTO dto = new MetaAhorroDTO();
+    @Override
+    @Transactional
+    public void registrarGastoEvitado(Long metaId, Long tipoGastoId, Double monto, String descripcion, String evidenciaAhorro) {
+        validarMontoGastoEvitado(monto);
+        validarDescripcionGastoEvitado(descripcion);
+
+        MetaAhorro metaAhorro = metaAhorroRepository.findById(metaId)
+                .orElseThrow(() -> new RuntimeException("Meta de ahorro no encontrada"));
+
+        if (metaAhorro.getEstado() != MetaAhorro.EstadoMeta.ACTIVA) {
+            throw new RuntimeException("No se pueden registrar gastos evitados en una meta que no está activa");
+        }
+
+        TipoGasto tipoGasto = tipoGastoRepository.findById(tipoGastoId)
+                .orElseThrow(() -> new RuntimeException("Tipo de gasto no encontrado"));
+
+        if (tipoGasto.getEsGastoBase()) {
+            throw new RuntimeException("No se pueden registrar gastos base como evitados");
+        }
+
+        GastoEvitado gastoEvitado = new GastoEvitado();
+        gastoEvitado.setMeta(metaAhorro);
+        gastoEvitado.setTipoGasto(tipoGasto);
+        gastoEvitado.setMonto(monto);
+        gastoEvitado.setDescripcion(descripcion);
+        gastoEvitado.setEvidenciaAhorro(evidenciaAhorro);
+        gastoEvitado.setFechaRegistro(LocalDate.now());
+
+        gastoEvitadoRepository.save(gastoEvitado);
+        verificarMetaCompletada(metaId);
+    }
+
+    @Override
+    @Transactional
+    public void verificarMetaCompletada(Long metaId) {
+        MetaAhorro metaAhorro = metaAhorroRepository.findById(metaId)
+                .orElseThrow(() -> new RuntimeException("Meta de ahorro no encontrada"));
+
+        Double totalAhorrado = metaAhorroRepository.buscarTotalAhorradoPorMeta(metaId);
+
+        if (totalAhorrado >= metaAhorro.getMontoObjetivo()) {
+            metaAhorro.setEstado(MetaAhorro.EstadoMeta.COMPLETADA);
+            metaAhorroRepository.save(metaAhorro);
+        }
+    }
+
+    /**
+     * Convierte una entidad MetaAhorro a su DTO de respuesta.
+     * 
+     * @param metaAhorro La entidad MetaAhorro a convertir
+     * @return El DTO de respuesta con todos los campos calculados
+     */
+    private MetaAhorroResponseDTO convertirAResponseDTO(MetaAhorro metaAhorro) {
+        MetaAhorroResponseDTO dto = new MetaAhorroResponseDTO();
         dto.setId(metaAhorro.getId());
+        dto.setUsuarioId(metaAhorro.getUsuario().getId());
+        dto.setNombreUsuario(metaAhorro.getUsuario().getNombre());
         dto.setNombre(metaAhorro.getNombre());
-        dto.setDescripcion(metaAhorro.getDescripcion());
         dto.setMontoObjetivo(metaAhorro.getMontoObjetivo());
-        dto.setMontoActual(metaAhorro.getMontoActual());
         dto.setFechaInicio(metaAhorro.getFechaInicio());
-        dto.setFechaObjetivo(metaAhorro.getFechaObjetivo());
-        dto.setPorcentajeCompletado(calcularPorcentajeCompletado(metaAhorro.getId()));
+        dto.setFechaFin(metaAhorro.getFechaFin());
+        dto.setEstado(metaAhorro.getEstado().toString());
+        dto.setTotalGastosHormigaPeriodo(metaAhorro.getTotalGastosHormigaPeriodo());
+        dto.setFechaRegistro(metaAhorro.getFechaRegistro());
+
+        // Calcular campos adicionales
+        Double totalAhorrado = metaAhorroRepository.buscarTotalAhorradoPorMeta(metaAhorro.getId());
+        dto.setMontoActual(totalAhorrado);
+        dto.setPorcentajeCompletado((totalAhorrado / metaAhorro.getMontoObjetivo()) * 100);
         return dto;
+    }
+
+    /**
+     * Valida que el usuario exista y esté activo.
+     * 
+     * @param usuarioDTO El DTO del usuario a validar
+     * @throws RuntimeException si el usuario no existe o no está activo
+     */
+    private void validarUsuario(UsuarioDTO usuarioDTO) {
+        if (usuarioDTO == null || usuarioDTO.getId() == null) {
+            throw new RuntimeException("El usuario no puede ser nulo");
+        }
+    }
+
+    /**
+     * Valida las fechas de una meta de ahorro.
+     * 
+     * @param fechaInicio La fecha de inicio
+     * @param fechaFin La fecha de fin
+     * @throws RuntimeException si las fechas no son válidas
+     */
+    private void validarFechasMeta(LocalDate fechaInicio, LocalDate fechaFin) {
+        if (fechaInicio == null || fechaFin == null) {
+            throw new RuntimeException("Las fechas no pueden ser nulas");
+        }
+        if (fechaInicio.isAfter(fechaFin)) {
+            throw new RuntimeException("La fecha de inicio no puede ser posterior a la fecha de fin");
+        }
+        if (fechaInicio.isBefore(LocalDate.now())) {
+            throw new RuntimeException("La fecha de inicio no puede ser anterior a la fecha actual");
+        }
+    }
+
+    /**
+     * Valida el monto objetivo de una meta de ahorro.
+     * 
+     * @param montoObjetivo El monto objetivo a validar
+     * @throws RuntimeException si el monto no es válido
+     */
+    private void validarMontoObjetivo(Double montoObjetivo) {
+        if (montoObjetivo == null || montoObjetivo <= 0) {
+            throw new RuntimeException("El monto objetivo debe ser mayor que cero");
+        }
+    }
+
+    /**
+     * Valida el monto de un gasto evitado.
+     * 
+     * @param monto El monto a validar
+     * @throws RuntimeException si el monto no es válido
+     */
+    private void validarMontoGastoEvitado(Double monto) {
+        if (monto == null || monto <= 0) {
+            throw new RuntimeException("El monto del gasto evitado debe ser mayor que cero");
+        }
+    }
+
+    /**
+     * Valida la descripción de un gasto evitado.
+     * 
+     * @param descripcion La descripción a validar
+     * @throws RuntimeException si la descripción no es válida
+     */
+    private void validarDescripcionGastoEvitado(String descripcion) {
+        if (descripcion == null || descripcion.trim().isEmpty()) {
+            throw new RuntimeException("La descripción del gasto evitado no puede estar vacía");
+        }
     }
 }

@@ -1,147 +1,220 @@
 package com.gestiongastos.sistema.service.impl;
 
 import com.gestiongastos.sistema.dto.GastoDTO;
-import com.gestiongastos.sistema.model.Categoria;
+import com.gestiongastos.sistema.dto.GastoResponseDTO;
+import com.gestiongastos.sistema.dto.TipoGastoDTO;
+import com.gestiongastos.sistema.dto.UsuarioDTO;
 import com.gestiongastos.sistema.model.Gasto;
+import com.gestiongastos.sistema.model.TipoGasto;
 import com.gestiongastos.sistema.model.Usuario;
-import com.gestiongastos.sistema.repository.CategoriaRepository;
 import com.gestiongastos.sistema.repository.GastoRepository;
+import com.gestiongastos.sistema.repository.TipoGastoRepository;
 import com.gestiongastos.sistema.repository.UsuarioRepository;
 import com.gestiongastos.sistema.service.GastoService;
-import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-@Transactional
 public class GastoServiceImpl implements GastoService {
 
     private final GastoRepository gastoRepository;
+    private final TipoGastoRepository tipoGastoRepository;
     private final UsuarioRepository usuarioRepository;
-    private final CategoriaRepository categoriaRepository;
 
     @Override
-    public GastoDTO crearGasto(Long usuarioId, GastoDTO gastoDTO) {
-        Usuario usuario = usuarioRepository.findById(usuarioId)
-                .orElseThrow(() -> new EntityNotFoundException("Usuario no encontrado"));
-
-        Categoria categoria = categoriaRepository.findById(gastoDTO.getCategoriaId())
-                .orElseThrow(() -> new EntityNotFoundException("Categoría no encontrada"));
+    @Transactional
+    public GastoResponseDTO registrarGasto(GastoDTO gastoDTO, UsuarioDTO usuarioDTO) {
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
 
         Gasto gasto = new Gasto();
-        gasto.setDescripcion(gastoDTO.getDescripcion());
-        gasto.setMonto(gastoDTO.getMonto());
-        gasto.setCategoria(categoria);
-        gasto.setEsEvitable(gastoDTO.isEsEvitable());
-        gasto.setEsRecurrente(gastoDTO.isEsRecurrente());
         gasto.setUsuario(usuario);
+        gasto.setMonto(gastoDTO.getMonto());
+        gasto.setDescripcion(gastoDTO.getDescripcion());
+        gasto.setFechaGasto(gastoDTO.getFechaGasto());
+        gasto.setFechaRegistro(LocalDateTime.now());
+
+        TipoGasto tipoGasto = tipoGastoRepository.findById(gastoDTO.getTipoGastoId())
+                .orElseThrow(() -> new RuntimeException("Tipo de gasto no encontrado"));
+        gasto.setTipoGasto(tipoGasto);
 
         Gasto gastoGuardado = gastoRepository.save(gasto);
-        return convertirADTO(gastoGuardado);
+        return convertirAResponseDTO(gastoGuardado);
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public GastoDTO obtenerGastoPorId(Long id) {
-        return gastoRepository.findById(id)
-                .map(this::convertirADTO)
-                .orElseThrow(() -> new EntityNotFoundException("Gasto no encontrado"));
-    }
+    @Transactional
+    public GastoResponseDTO actualizarGasto(Long id, GastoDTO gastoDTO, UsuarioDTO usuarioDTO) {
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
 
-    @Override
-    @Transactional(readOnly = true)
-    public List<GastoDTO> obtenerGastosPorUsuario(Long usuarioId) {
-        return gastoRepository.findByUsuarioId(usuarioId).stream()
-                .map(this::convertirADTO)
-                .collect(Collectors.toList());
-    }
-
-    @Override
-    public GastoDTO actualizarGasto(Long id, GastoDTO gastoDTO) {
         Gasto gasto = gastoRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Gasto no encontrado"));
+                .orElseThrow(() -> new RuntimeException("Gasto no encontrado"));
 
-        Categoria categoria = categoriaRepository.findById(gastoDTO.getCategoriaId())
-                .orElseThrow(() -> new EntityNotFoundException("Categoría no encontrada"));
+        if (!gasto.getUsuario().getId().equals(usuario.getId())) {
+            throw new RuntimeException("No tiene permiso para modificar este gasto");
+        }
 
-        gasto.setDescripcion(gastoDTO.getDescripcion());
         gasto.setMonto(gastoDTO.getMonto());
-        gasto.setCategoria(categoria);
-        gasto.setEsEvitable(gastoDTO.isEsEvitable());
-        gasto.setEsRecurrente(gastoDTO.isEsRecurrente());
+        gasto.setDescripcion(gastoDTO.getDescripcion());
+        gasto.setFechaGasto(gastoDTO.getFechaGasto());
+
+        TipoGasto tipoGasto = tipoGastoRepository.findById(gastoDTO.getTipoGastoId())
+                .orElseThrow(() -> new RuntimeException("Tipo de gasto no encontrado"));
+        gasto.setTipoGasto(tipoGasto);
 
         Gasto gastoActualizado = gastoRepository.save(gasto);
-        return convertirADTO(gastoActualizado);
+        return convertirAResponseDTO(gastoActualizado);
     }
 
     @Override
-    public void eliminarGasto(Long id) {
-        if (!gastoRepository.existsById(id)) {
-            throw new EntityNotFoundException("Gasto no encontrado");
+    @Transactional
+    public void eliminarGasto(Long id, UsuarioDTO usuarioDTO) {
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+
+        Gasto gasto = gastoRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Gasto no encontrado"));
+
+        if (!gasto.getUsuario().getId().equals(usuario.getId())) {
+            throw new RuntimeException("No tiene permiso para eliminar este gasto");
         }
+
         gastoRepository.deleteById(id);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<GastoDTO> obtenerGastosPorPeriodo(Long usuarioId, LocalDateTime inicio, LocalDateTime fin) {
-        return gastoRepository.findByUsuarioIdAndFechaGastoBetween(usuarioId, inicio, fin).stream()
-                .map(this::convertirADTO)
+    public Optional<GastoResponseDTO> obtenerPorId(Long id) {
+        return gastoRepository.findById(id)
+                .map(this::convertirAResponseDTO);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<GastoResponseDTO> obtenerGastosUsuario(UsuarioDTO usuarioDTO) {
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        return gastoRepository.buscarPorUsuario(usuario).stream()
+                .map(this::convertirAResponseDTO)
                 .collect(Collectors.toList());
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<GastoDTO> obtenerGastosEvitables(Long usuarioId, boolean esEvitable) {
-        return gastoRepository.findByUsuarioIdAndEsEvitable(usuarioId, esEvitable).stream()
-                .map(this::convertirADTO)
+    public List<GastoResponseDTO> obtenerGastosPorPeriodo(UsuarioDTO usuarioDTO, LocalDate inicio, LocalDate fin) {
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        return gastoRepository.buscarPorUsuarioYPeriodo(usuario, inicio, fin).stream()
+                .map(this::convertirAResponseDTO)
                 .collect(Collectors.toList());
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<GastoDTO> obtenerGastosRecurrentes(Long usuarioId) {
-        return gastoRepository.findByUsuarioIdAndEsRecurrente(usuarioId, true).stream()
-                .map(this::convertirADTO)
+    public List<GastoResponseDTO> obtenerGastosHormiga(UsuarioDTO usuarioDTO) {
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        return gastoRepository.buscarPorUsuarioYTipoGastoEsGastoBase(usuario, false).stream()
+                .map(this::convertirAResponseDTO)
                 .collect(Collectors.toList());
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Double calcularTotalGastosPeriodo(Long usuarioId, LocalDateTime inicio, LocalDateTime fin) {
-        return gastoRepository.sumMontoByUsuarioIdAndFechaGastoBetween(usuarioId, inicio, fin);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public Double calcularTotalGastosEvitables(Long usuarioId) {
-        return gastoRepository.sumMontoGastosEvitablesByUsuarioId(usuarioId);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public List<GastoDTO> obtenerGastosPorCategoria(Long usuarioId, Long categoriaId) {
-        return gastoRepository.findByUsuarioIdAndCategoriaId(usuarioId, categoriaId).stream()
-                .map(this::convertirADTO)
+    public List<GastoResponseDTO> obtenerGastosHormigaPorPeriodo(UsuarioDTO usuarioDTO, LocalDate inicio, LocalDate fin) {
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        return gastoRepository.buscarPorUsuarioYTipoGastoEsGastoBaseYPeriodo(usuario, false, inicio, fin).stream()
+                .map(this::convertirAResponseDTO)
                 .collect(Collectors.toList());
     }
 
-    private GastoDTO convertirADTO(Gasto gasto) {
-        GastoDTO dto = new GastoDTO();
+    @Override
+    @Transactional(readOnly = true)
+    public Double calcularTotalGastosHormiga(UsuarioDTO usuarioDTO) {
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        return gastoRepository.calcularTotalPorUsuarioYTipoGastoEsGastoBase(usuario, false);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Double calcularTotalGastosHormigaPorPeriodo(UsuarioDTO usuarioDTO, LocalDate inicio, LocalDate fin) {
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        return gastoRepository.buscarPorUsuarioYTipoGastoEsGastoBaseYPeriodo(usuario, false, inicio, fin).stream()
+                .mapToDouble(Gasto::getMonto)
+                .sum();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<GastoResponseDTO> obtenerGastosBase(UsuarioDTO usuarioDTO) {
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        return gastoRepository.buscarPorUsuarioYTipoGastoEsGastoBase(usuario, true).stream()
+                .map(this::convertirAResponseDTO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<GastoResponseDTO> obtenerGastosBasePorPeriodo(UsuarioDTO usuarioDTO, LocalDate inicio, LocalDate fin) {
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        return gastoRepository.buscarPorUsuarioYTipoGastoEsGastoBaseYPeriodo(usuario, true, inicio, fin).stream()
+                .map(this::convertirAResponseDTO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Double calcularTotalGastosBase(UsuarioDTO usuarioDTO) {
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        return gastoRepository.calcularTotalPorUsuarioYTipoGastoEsGastoBase(usuario, true);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Double calcularTotalGastosBasePorPeriodo(UsuarioDTO usuarioDTO, LocalDate inicio, LocalDate fin) {
+        Usuario usuario = usuarioRepository.findById(usuarioDTO.getId())
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        return gastoRepository.buscarPorUsuarioYTipoGastoEsGastoBaseYPeriodo(usuario, true, inicio, fin).stream()
+                .mapToDouble(Gasto::getMonto)
+                .sum();
+    }
+
+    private GastoResponseDTO convertirAResponseDTO(Gasto gasto) {
+        GastoResponseDTO dto = new GastoResponseDTO();
         dto.setId(gasto.getId());
-        dto.setDescripcion(gasto.getDescripcion());
         dto.setMonto(gasto.getMonto());
+        dto.setDescripcion(gasto.getDescripcion());
         dto.setFechaGasto(gasto.getFechaGasto());
-        dto.setCategoriaId(gasto.getCategoria().getId());
-        dto.setCategoriaNombre(gasto.getCategoria().getNombre());
-        dto.setEsEvitable(gasto.isEsEvitable());
-        dto.setEsRecurrente(gasto.isEsRecurrente());
+        dto.setFechaRegistro(gasto.getFechaRegistro().toLocalDate());
+        
+        UsuarioDTO usuarioDTO = new UsuarioDTO();
+        usuarioDTO.setId(gasto.getUsuario().getId());
+        usuarioDTO.setNombre(gasto.getUsuario().getNombre());
+        dto.setUsuario(usuarioDTO);
+        
+        TipoGastoDTO tipoGastoDTO = new TipoGastoDTO();
+        tipoGastoDTO.setCategoriaId(gasto.getTipoGasto().getCategoria().getId());
+        tipoGastoDTO.setNombre(gasto.getTipoGasto().getNombre());
+        tipoGastoDTO.setDescripcion(gasto.getTipoGasto().getDescripcion());
+        tipoGastoDTO.setEsGastoBase(gasto.getTipoGasto().getEsGastoBase());
+        tipoGastoDTO.setFrecuencia(gasto.getTipoGasto().getFrecuencia());
+        dto.setTipoGasto(tipoGastoDTO);
+        
         return dto;
     }
 }
